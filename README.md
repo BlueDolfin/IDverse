@@ -145,4 +145,8 @@ path to production (real backend integration, privacy manifest, CI, distribution
 
 ## License
 
-Copyright © 2026. All rights reserved.
+Licensed under the [Apache License 2.0](LICENSE).
+
+The IDVerse product documentation in `Manuals/`, the hosted-flow screenshots in
+`Screenshots/`, and the IDVerse name/branding are the property of IDVerse and
+are **not** covered by this license — see [NOTICE](NOTICE).

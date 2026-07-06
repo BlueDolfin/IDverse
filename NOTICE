@@ -1,0 +1,13 @@
+IDVerse Mobile SDKs
+Copyright 2026 Blue Dolfin Business Solutions BV
+
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+Third-party materials NOT covered by the Apache License 2.0:
+
+- The IDVerse product documentation in Manuals/ and the hosted-flow
+  screenshots in Screenshots/ are the property of IDVerse and are included
+  for integrator reference only.
+- "IDVerse" is a trademark of its respective owner. This project is an
+  independent integration SDK and is not affiliated with or endorsed by
+  IDVerse.
