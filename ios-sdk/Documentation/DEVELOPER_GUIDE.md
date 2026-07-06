@@ -742,7 +742,6 @@ Not just "fill in a URL" — an auditable pipeline:
 - Accessibility/UX — VoiceOver on the native chrome, localization, themeable
   loader/close/error.
 - Broader testing — XCUITest smoke of present/cancel/timeout paths.
-- Android parity — `WebView`/Custom Tabs rewrite mirroring the iOS SDK.
 
 ---
 
@@ -759,6 +758,3 @@ Not just "fill in a URL" — an auditable pipeline:
 - **No SemVer tags, no `CHANGELOG`, no Package version yet** — versioning and
   distribution are a Tier 3 item. The working integration form is
   `.package(path: "../ios-sdk")`.
-- **Android** — a parallel `android-sdk/` package mirrors the same design with a
-  `WebView`/Custom Tabs host and an equivalent service/result API; implementation
-  is pending.

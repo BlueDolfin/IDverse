@@ -1,4 +1,4 @@
-# IDVerse Mobile SDKs
+# IDVerse iOS SDK
 
 Native **iOS SDK that integrates [IDVerse](https://idverse.com) identity
 verification** into your app, plus a sample app.
@@ -6,16 +6,14 @@ verification** into your app, plus a sample app.
 [![iOS](https://img.shields.io/badge/iOS-15.0+-blue.svg)](https://www.apple.com/ios/)
 [![Swift](https://img.shields.io/badge/Swift-5.7+-orange.svg)](https://swift.org/)
 [![SPM](https://img.shields.io/badge/SwiftPM-supported-success.svg)](https://swift.org/package-manager/)
-[![Android](https://img.shields.io/badge/Android-pending-lightgrey.svg)](#platform-status)
 ![Version](https://img.shields.io/badge/version-0.1.0-informational.svg)
 
 ## What this is (read first)
 
 **IDVerse has no native mobile SDK.** Its identity-verification journey
 (consent → document capture → OCR → confirm details → liveness → complete) is a
-**hosted web flow** served by IDVerse. These SDKs therefore present that flow in
-an embedded webview (iOS: `WKWebView`; Android: `WebView`) and wrap it with a
-clean native API.
+**hosted web flow** served by IDVerse. This SDK therefore presents that flow in
+an embedded `WKWebView` and wraps it with a clean native API.
 
 Document capture, OCR, liveness/anti-spoof, and fraud checks **all run inside
 IDVerse's web flow on IDVerse's servers** — there is no native capture or
@@ -51,9 +49,8 @@ in-app `.pending` result is valid and means "reconcile via the webhook").
 ios-sdk/        Swift Package (IDVerseSDK, iOS 15+, no deps) + Documentation/ + Examples/IDVerseApp
 ```
 
-Each platform is self-contained: its code, its `Documentation/` (Integration +
-Developer guides), and its example app live under that platform's folder. The
-Android SDK is developed separately and lands here when ready.
+The SDK is self-contained: its code, its `Documentation/` (Integration +
+Developer guides), and its example app all live under `ios-sdk/`.
 
 ## Quick start (iOS)
 
@@ -115,7 +112,6 @@ API and backend wiring.
 | **iOS** — [Integration Guide](ios-sdk/Documentation/INTEGRATION_GUIDE.md) | App developers: get the iOS SDK into your app, why use it (vs DIY), full API reference, backend wiring, security |
 | **iOS** — [Developer Guide](ios-sdk/Documentation/DEVELOPER_GUIDE.md) | SDK maintainers: architecture, file-by-file code walkthrough, conventions, testing, roadmap |
 | **iOS** — [Example app](ios-sdk/Examples/IDVerseApp/README.md) | Running the iOS example app |
-| **Android** — Integration / Developer guides | Pending — added as the Android SDK is built |
 
 ## Requirements
 
@@ -128,16 +124,14 @@ API and backend wiring.
 cd ios-sdk && swift test                 # Foundation logic (macOS host, no simulator)
 ```
 
-## Platform status
+## Status
 
-- **iOS** — implemented (`v0.1.0`). The presentation, orchestration, observability,
-  and resilience are complete and tested. The **transaction API is stubbed**:
-  `RemoteTransactionService` throws `notImplemented` until you wire it to your
-  backend (no live IDVerse credentials/contract yet). Run the full flow locally
-  against `MockTransactionService`, or paste a real transaction URL into the
-  example app.
-- **Android** — pending; the SDK will mirror iOS with an embedded webview host.
-  Its Integration/Developer guides are added as it is built.
+Implemented (`v0.1.0`). The presentation, orchestration, observability, and
+resilience are complete and tested. The **transaction API is stubbed**:
+`RemoteTransactionService` throws `notImplemented` until you wire it to your
+backend (no live IDVerse credentials/contract yet). Run the full flow locally
+against `MockTransactionService`, or paste a real transaction URL into the
+example app.
 
 This is a **pre-1.0** project — see the iOS Developer Guide's
 [Further development](ios-sdk/Documentation/DEVELOPER_GUIDE.md) section for the

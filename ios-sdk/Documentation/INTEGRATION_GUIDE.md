@@ -13,7 +13,7 @@ folder.
 
 **It is a native API for IDVerse — not a native verification engine.** Integrators
 write Swift: `IDVerse.runVerification(...)`, typed models, typed errors,
-SwiftUI/UIKit entry points (the Android SDK mirrors this in Kotlin). The
+SwiftUI/UIKit entry points. The
 `WKWebView` is an implementation detail the API hides. What is _native_ is the
 integration surface and everything around the webview — container, permissions,
 lifecycle, security, results. The verification journey itself — capture, OCR,
