@@ -124,6 +124,20 @@ API and backend wiring.
 cd ios-sdk && swift test                 # Foundation logic (macOS host, no simulator)
 ```
 
+### Full end-to-end testing needs an IDVerse staging environment
+
+`MockTransactionService` and the example app exercise the SDK's native side
+without any credentials — but the verification journey itself (document
+capture, OCR, liveness, results) runs on IDVerse's hosted flow. To test the
+app end-to-end you need access to an **IDVerse staging environment**: a
+staging tenant whose credentials let your backend create transactions and
+whose transaction URLs serve the web journey.
+
+**Contact [IDVerse](https://idverse.com) to arrange staging access** for your
+organisation. Once you have it, create a transaction via your backend (or
+paste a staging transaction URL into the example app) and run the flow on a
+**real device** — camera and liveness do not work in the iOS simulator.
+
 ## Status
 
 Implemented (`v0.1.0`). The presentation, orchestration, observability, and
