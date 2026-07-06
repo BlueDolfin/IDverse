@@ -1,0 +1,35 @@
+# macOS
+.DS_Store
+*.swp
+*.swo
+*~
+
+# iOS
+ios-sdk/build/
+ios-sdk/DerivedData/
+ios-sdk/*.xcworkspace/xcuserdata/
+ios-sdk/*.xcodeproj/xcuserdata/
+ios-sdk/*.xcodeproj/project.xcworkspace/xcuserdata/
+ios-sdk/Pods/
+ios-sdk/.build/
+ios-sdk/*.framework.zip
+
+# Xcode per-user state (any depth, e.g. nested example apps)
+**/xcuserdata/
+*.xcuserstate
+
+# Secrets
+*.env
+**/secrets.json
+**/credentials.json
+api-keys.txt
+
+# IDE
+.vscode/
+.idea/
+
+# Dependencies
+node_modules/
+
+# Logs
+*.log
