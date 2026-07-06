@@ -1,6 +1,6 @@
 # IDVerse Mobile SDKs
 
-Native **iOS and Android SDKs that integrate [IDVerse](https://idverse.com) identity
+Native **iOS that integrate [IDVerse](https://idverse.com) identity
 verification** into your app, plus a sample app per platform.
 
 [![iOS](https://img.shields.io/badge/iOS-15.0+-blue.svg)](https://www.apple.com/ios/)
