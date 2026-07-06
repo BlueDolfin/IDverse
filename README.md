@@ -134,9 +134,14 @@ staging tenant whose credentials let your backend create transactions and
 whose transaction URLs serve the web journey.
 
 **Contact [IDVerse](https://idverse.com) to arrange staging access** for your
-organisation. Once you have it, create a transaction via your backend (or
-paste a staging transaction URL into the example app) and run the flow on a
-**real device** — camera and liveness do not work in the iOS simulator.
+organisation. IDVerse provides the staging environment that serves the webview
+journey; transaction URLs created in it are what the SDK loads.
+
+Once you have access: create a transaction via your backend and paste the
+resulting staging transaction URL into the example app's transaction-URL field
+(it is intentionally empty by default — the URL must come from your IDVerse
+staging environment). Then run the flow on a **real device** — camera and
+liveness do not work in the iOS simulator.
 
 ## Status
 

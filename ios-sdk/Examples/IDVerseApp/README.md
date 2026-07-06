@@ -53,7 +53,10 @@ Camera and microphone usage strings are already configured. They are required be
 
 The transaction API is **stubbed**. `RemoteTransactionService` throws `notImplemented` until a real backend is wired in. To see the live IDVerse journey:
 
-1. Obtain a real transaction URL from the IDVerse sandbox (via your backend calling Store Transaction).
+1. Obtain a transaction URL from your IDVerse **staging environment** (via your
+   backend calling Store Transaction). The staging environment — and therefore
+   the URL the webview loads — comes from IDVerse; contact them to arrange
+   access if you don't have it yet.
 2. Paste it into the "Run verification flow" field and tap the button.
 
 Without a real URL, use "Preview result screen (mock)" to verify the result UI.
