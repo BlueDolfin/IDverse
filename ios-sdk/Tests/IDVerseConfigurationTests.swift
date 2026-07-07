@@ -17,4 +17,11 @@ final class IDVerseConfigurationTests: XCTestCase {
                                            redirectURL: URL(string: "idverse-sdk://complete")!)
         XCTAssertNil(r.transactionId)
     }
+    func test_appBoundDomains_defaultsOff() {
+        // Opt-in only: enabling it without WKAppBoundDomains in the HOST app's
+        // Info.plist blocks all navigation, so the SDK must never default it on.
+        XCTAssertFalse(IDVerseConfiguration.default.limitsNavigationsToAppBoundDomains)
+        XCTAssertTrue(IDVerseConfiguration(limitsNavigationsToAppBoundDomains: true)
+            .limitsNavigationsToAppBoundDomains)
+    }
 }

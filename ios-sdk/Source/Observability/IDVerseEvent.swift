@@ -35,6 +35,9 @@ public enum IDVerseEvent: Sendable {
     case webViewLoaded(transactionId: String?)
     case webContentProcessTerminated(transactionId: String?)
     case redirectMatched(transactionId: String?)
+    /// A main-frame navigation to an origin outside the allow-list was cancelled.
+    /// Carries no URL/host by design (PII rule) — the flow keeps running.
+    case navigationBlocked(transactionId: String?)
     case resultFetchStarted(transactionId: String)
     case retrying(operation: IDVerseOperation, attempt: Int, maxAttempts: Int, reason: IDVerseFailureCategory)
     case resultPending(transactionId: String)

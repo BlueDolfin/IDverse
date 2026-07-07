@@ -50,7 +50,7 @@ Public API (facade + SwiftUI)
         │     VerificationOrchestrator · WebFlowOutcome · IDVerseRedirectMatcher
         │
         ├── Presentation (iOS · UIKit/WebKit)
-        │     IDVerseWebViewController · WebViewConfigurationFactory · MediaOriginAllowList
+        │     IDVerseWebViewController · WebViewConfigurationFactory · OriginAllowList
         │
         ├── Transaction services (Foundation)
         │     IDVerseTransactionService (protocol) · MockTransactionService · RemoteTransactionService (scaffold)
@@ -66,7 +66,7 @@ Public API (facade + SwiftUI)
 
 - **Foundation layer** (`Models/`, `Core/IDVerseRedirectMatcher`,
   `Core/VerificationOrchestrator`, `Core/WebFlowOutcome`,
-  `Core/MediaOriginAllowList`, `Core/IDVerseRetryPolicy`, `Core/RetryRunner`,
+  `Core/OriginAllowList`, `Core/IDVerseRetryPolicy`, `Core/RetryRunner`,
   `Core/OneShotCompletion`, `Observability/*`, `Transaction/*`): no UIKit/WebKit
   imports — compiles on macOS 11+ and is unit-tested via `swift test`.
 - **iOS presentation layer** (`Core/IDVerseWebViewController`,
@@ -87,13 +87,13 @@ the signal.
 | `IDVerse` (facade) | `runVerification(_:using:from:configuration:)` (full lifecycle → `IDVerseVerificationResult`) and `verify(_:from:configuration:)` (lean → `IDVerseStatus`). Presents the controller via a `OneShotCompletion` box + `withTaskCancellationHandler`. Emits boundary events (`.cancelled`, `.failed`). `configuration:` defaults to `.default`. |
 | `IDVerseVerificationFlow` | SwiftUI full-lifecycle entry: hosts a controller that runs `runVerification` once and returns the real result. Cancels the in-flight `Task` in `dismantleUIViewController` for clean SwiftUI teardown. |
 | `IDVerseVerificationView` | SwiftUI lean entry: presents an already-created transaction URL, returns webview-level status. |
-| `IDVerseWebViewController` | Full-screen `WKWebView` host: native loader/close/error, camera-permission gate, redirect detection, fail-closed media-capture grant. Load timeout from `configuration.webViewLoadTimeout`; backgrounding-safe watchdog. Content-process recovery: reloads once on first WebKit renderer termination, fails on second. Emits `.presented`, `.webViewLoaded`, `.webContentProcessTerminated`, `.redirectMatched`. |
+| `IDVerseWebViewController` | Full-screen `WKWebView` host: native loader/close/error, camera-permission gate, redirect detection, fail-closed media-capture grant. Load timeout from `configuration.webViewLoadTimeout`; backgrounding-safe watchdog. Content-process recovery: reloads once on first WebKit renderer termination, fails on second. Emits `.presented`, `.webViewLoaded`, `.webContentProcessTerminated`, `.redirectMatched`, `.navigationBlocked`. Main-frame navigation is gated by `NavigationPolicy` (fail-closed origin allow-list). |
 | `VerificationOrchestrator` | Sequencing with retry, idempotency, result polling, and event emission: `createTransaction` (retry + fixed idempotency key per run) → `present` → `fetchResult` (retry) → poll while `.pending` up to `resultPollingTimeout`. Injects `present`/`sleep`/`now` so it stays UIKit-free and testable. |
 | `IDVerseTransactionService` | Protocol for the transaction lifecycle. `MockTransactionService` (canned data) and `RemoteTransactionService` (backend-proxy scaffold) ship in the SDK. |
 | `IDVerseRedirectMatcher` | Pure logic that recognises the exit-redirect URL (scheme+host+path, query-tolerant) and extracts the transaction id. |
-| `MediaOriginAllowList` | Pure, fail-closed allow-list: camera/mic granted only to the transaction host + known IDVerse domains. |
+| `OriginAllowList` | Pure, fail-closed allow-list: camera/mic granted only to the transaction host + known IDVerse domains. |
 | `WebViewConfigurationFactory` | Builds the `WKWebViewConfiguration` (inline media, JS, Chrome UA, non-persistent data store). |
-| `IDVerseConfiguration` | Single SDK-behaviour config value type (`Sendable`): `observability`, `webViewLoadTimeout` (default 30 s), `resultPollingTimeout` (default 60 s), `retryPolicy` (default `.default`). Every entry point accepts it defaulted — existing call sites compile unchanged. |
+| `IDVerseConfiguration` | Single SDK-behaviour config value type (`Sendable`): `observability`, `webViewLoadTimeout` (default 30 s), `resultPollingTimeout` (default 60 s), `retryPolicy` (default `.default`), `limitsNavigationsToAppBoundDomains` (default `false`, opt-in WebKit-enforced navigation lock). Every entry point accepts it defaulted — existing call sites compile unchanged. |
 | `IDVerseObservability` | PII-safe event sink (`Sendable`). `.disabled` (default) or `.events { handler }`. Redacted `os.Logger` breadcrumbs emit even when disabled. |
 | `IDVerseEvent` | Public lifecycle event enum (`Sendable`). Cases cover the full lifecycle from `.started` through `.completed`/`.cancelled`/`.failed`. Payloads carry only ids / `Outcome` / `IDVerseFailureCategory` / counters — no URL, token, raw error, or document data. |
 | `IDVerseRetryPolicy` | Public retry config (`Sendable`): `maxAttempts`, `initialDelay`, `maxDelay`, `jitter`, `isRetryable`. `.default` (3 attempts, exponential backoff 0.5–4 s ± 20% jitter, transient `URLError`s retryable) and `.none` (1 attempt) ship. Integrators supply a custom `isRetryable` for typed backend errors. |
@@ -182,7 +182,9 @@ Source/
     OneShotCompletion.swift             (Foundation) Internal resume-exactly-once box
     VerificationOrchestrator.swift      (Foundation) Sequences create→present→fetch (retry/poll/events)
     WebFlowOutcome.swift                (Foundation) internal { status, transactionId }
-    MediaOriginAllowList.swift          (Foundation) Fail-closed camera/mic origin gate
+    OriginAllowList.swift               (Foundation) Fail-closed camera/mic origin gate
+    NavigationPolicy.swift              (Foundation) Fail-closed main-frame origin gate
+    OriginHeaderState.swift             (Foundation) Live origin-header state derivation
     WebViewConfigurationFactory.swift   (iOS)  Builds the WKWebViewConfiguration
     IDVerseWebViewController.swift      (iOS)  The WKWebView host (the heart of the UI)
     IDVerseVerificationView.swift       (iOS)  SwiftUI wrapper — lean (status only)
@@ -203,14 +205,17 @@ it an integrator in another module cannot construct these.
   data. Fields (all defaulted): `observability: IDVerseObservability` (default
   `.disabled`), `webViewLoadTimeout: TimeInterval` (default `30`),
   `resultPollingTimeout: TimeInterval` (default `60`), `retryPolicy: IDVerseRetryPolicy`
-  (default `.default`). `static let default` gives a zero-config value; all entry
+  (default `.default`), `limitsNavigationsToAppBoundDomains: Bool` (default
+  `false`; opt-in WebKit-enforced navigation lock — requires the host app's
+  `WKAppBoundDomains` Info.plist key). `static let default` gives a zero-config value; all entry
   points accept `configuration: IDVerseConfiguration = .default` so existing call
   sites keep compiling unchanged.
 - **`IDVerseVerificationRequest`** — input to the *lean* path: `transactionURL`
   (what to load), `redirectURL` (how completion is detected), `showsCloseButton`,
-  `transactionId: String?` (default `nil`; set by the orchestrator before passing
-  to `present` so the controller and events carry the id without the caller needing
-  to supply it).
+  `showsOriginHeader` (default `true`; native trust bar above the webview showing
+  the live origin), `transactionId: String?` (default `nil`; set by the orchestrator
+  before passing to `present` so the controller and events carry the id without the
+  caller needing to supply it).
 - **`TransactionConfig`** — input to the *full* path: `flowType`,
   `customerReference?`, `redirectURL`, `idempotencyKey: String` (default `""`; the
   orchestrator generates a UUID per run if empty, reusing it across retries so a
@@ -340,13 +345,30 @@ run(config):
 The idempotency key is generated *once before* the create-retry loop, so a
 retried create carries the same key every attempt — the backend can deduplicate.
 
-### `MediaOriginAllowList`
+### `OriginAllowList`
 
 A **fail-closed** gate for the webview's camera/mic permission. Built from the
 transaction URL's host plus known IDVerse suffixes (`.idkit.co`, `.idverse.com`
 and their apexes). `allows(host:)` returns true only for those; **nil/empty/any
 other origin → false.** This is why the controller can safely grant getUserMedia
 only to IDVerse and deny everything else.
+
+### `NavigationPolicy`
+
+Decides what to do with a webview navigation, given the redirect matcher and
+the `OriginAllowList`. **Fail-closed** on the main frame: the exit redirect
+finishes the flow, an allowed `http`/`https` origin (or `about:`) is allowed,
+and everything else — including a `nil` URL or an unknown scheme — is
+`.block`ed. Sub-frame navigations are unrestricted; the main frame is the only
+trust surface.
+
+### `OriginHeaderState`
+
+The trust state shown in the native origin header, derived live from the
+webview's current URL against the same `OriginAllowList` — never a hardcoded
+label. **`https`-only verified semantics:** a `nil`/`about:` URL is `.loading`;
+a verified `https` host on the allow-list is `.verified(host:)`; anything else
+(including a plain `http` origin) is `.unverified`.
 
 ---
 
@@ -398,11 +420,13 @@ closure.
   matcher; on a match it cancels the navigation, emits
   `.redirectMatched(transactionId:)`, and finishes `.completed` with the redirect's
   transactionId. The main-frame guard prevents a sub-frame URL from spoofing
-  completion.
+  completion. Main-frame navigations are also gated by `NavigationPolicy` — a
+  fail-closed origin allow-list; off-list navigations are cancelled and emit
+  `.navigationBlocked` without ending the flow.
 - **`webView(_:didFinish:)`:** cancels the watchdog, stops the spinner, and emits
   `.webViewLoaded(transactionId:)` exactly **once** (guarded by `firstLoadDone`).
 - **Media permission (`requestMediaCapturePermissionFor`):** grants only if
-  `mediaAllowList.allows(host: origin.host)`, else `.deny` — fail closed.
+  `allowList.allows(host: origin.host)`, else `.deny` — fail closed.
 - **`finish(_:)`:** guarded by a `didFinish` flag so the outcome is delivered
   **exactly once**, no matter which path (redirect, close, load error) fires first.
 - **`setOnFinish(_:)` / `cancelFromOutside()`:** the facade replaces the initial
@@ -410,9 +434,9 @@ closure.
   calls `cancelFromOutside()` on Task cancellation — both route through the same
   `finish(.success(.cancelled, …))` path. `onFinish` is `@MainActor`-typed.
 
-**Four controller events** (emitted by the controller, disjoint from the
+**Five controller events** (emitted by the controller, disjoint from the
 orchestrator's events): `.presented`, `.webViewLoaded`,
-`.webContentProcessTerminated`, `.redirectMatched`.
+`.webContentProcessTerminated`, `.redirectMatched`, `.navigationBlocked`.
 
 The delegate methods must be `public` — Swift requires public witnesses for the
 public `WKNavigationDelegate`/`WKUIDelegate` conformances.
@@ -518,7 +542,7 @@ Each event is emitted by exactly one component, no gaps and no overlaps per run:
 | Component | Events |
 |---|---|
 | **Orchestrator** | `.started`, `.transactionCreateStarted`, `.transactionCreateSucceeded`, `.resultFetchStarted`, `.resultPending`, `.resultPollingTimedOut`, `.completed`; `.retrying` via `withRetry` |
-| **WebView controller** | `.presented`, `.webViewLoaded`, `.webContentProcessTerminated`, `.redirectMatched` |
+| **WebView controller** | `.presented`, `.webViewLoaded`, `.webContentProcessTerminated`, `.redirectMatched`, `.navigationBlocked` |
 | **Facade** | `.cancelled`, `.failed` |
 
 ### PII by construction
@@ -667,20 +691,23 @@ and running the scheme from there is the simplest path.
 
 ## 13. Tests (`Tests/`)
 
-The logic layer is unit-tested via `swift test` (41 tests as of the observability
-+ resilience slice):
+The logic layer is unit-tested via `swift test` (59 tests as of the navigation
+policy + origin header slice):
 
 - `IDVerseModelTests` — model construction, `Outcome` raw values, equality, defaults.
 - `IDVerseRedirectMatcherTests` — match/reject/extract, query tolerance.
 - `TransactionServiceTests` — mock returns configured values; remote throws.
 - `VerificationOrchestratorTests` — id selection (`??` fallback), cancellation skips
   fetch, retry/idempotency/poll behaviour, event sequence.
-- `MediaOriginAllowListTests` — host/subdomain/apex allowed, unrelated/nil denied.
+- `OriginAllowListTests` — host/subdomain/apex allowed, unrelated/nil denied.
 - `IDVerseConfigurationTests` — default values, memberwise init, Sendable.
 - `IDVerseEventTests` — all cases, `name` accessor, `transactionId` accessor.
 - `IDVerseObservabilityTests` — `.disabled` delivers nothing; `.events` delivers to handler.
 - `OneShotCompletionTests` — first-wins, subsequent calls dropped.
 - `RetryRunnerTests` — attempts, backoff, jitter, `.retrying` events, cancellation propagation.
+- `NavigationPolicyTests` — finishFlow/allow/block decisions, main-frame fail-closed
+  gate, sub-frame unrestricted.
+- `OriginHeaderStateTests` — loading/verified/unverified derivation, https-only.
 
 The webview controller, SwiftUI wrappers, and facade are **build-verified** and
 smoke-tested in the example app, because they require live WebKit.
@@ -753,8 +780,12 @@ Not just "fill in a URL" — an auditable pipeline:
   verification. The seam is ready; see the Tier 2 roadmap.
 - The **observability + resilience slice** (events, retry/backoff, polling,
   process recovery, cancellation, `IDVerseConfiguration`) is **complete and
-  merged to `main`** (HEAD f286b1c). All 41 unit tests pass; iOS and macOS
-  builds are warning-free.
+  merged to `main`**.
+- The **trust-hardening slice** (fail-closed `NavigationPolicy` main-frame gate,
+  live origin header, opt-in App-Bound Domains) is **complete and merged to
+  `main`**. All 59 unit tests pass; iOS and macOS builds are warning-free. A
+  manual smoke test of the origin header on a real device is the remaining
+  verification step.
 - **No SemVer tags, no `CHANGELOG`, no Package version yet** — versioning and
   distribution are a Tier 3 item. The working integration form is
   `.package(path: "../ios-sdk")`.

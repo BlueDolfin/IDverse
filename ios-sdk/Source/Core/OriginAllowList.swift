@@ -1,8 +1,9 @@
 import Foundation
 
-/// Decides whether the webview may grant camera/microphone to a web origin.
+/// Decides whether a web origin belongs to the verification flow. Shared by the
+/// camera/microphone grant, the navigation gate, and the origin header.
 /// Fails closed: only the transaction's own host and known IDVerse domains are allowed.
-struct MediaOriginAllowList {
+struct OriginAllowList {
     private let allowedHosts: Set<String>
     private let allowedSuffixes: [String]
 

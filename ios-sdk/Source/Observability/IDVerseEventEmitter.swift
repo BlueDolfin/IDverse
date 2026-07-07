@@ -36,6 +36,7 @@ extension IDVerseEvent {
         case .webViewLoaded: return "webViewLoaded"
         case .webContentProcessTerminated: return "webContentProcessTerminated"
         case .redirectMatched: return "redirectMatched"
+        case .navigationBlocked: return "navigationBlocked"
         case .resultFetchStarted: return "resultFetchStarted"
         case .retrying: return "retrying"
         case .resultPending: return "resultPending"
@@ -52,7 +53,8 @@ extension IDVerseEvent {
              .resultPending(let id), .resultPollingTimedOut(let id),
              .completed(let id, _): return id
         case .presented(let id), .webViewLoaded(let id), .webContentProcessTerminated(let id),
-             .redirectMatched(let id), .cancelled(let id), .failed(_, let id): return id
+             .redirectMatched(let id), .navigationBlocked(let id), .cancelled(let id),
+             .failed(_, let id): return id
         case .started, .transactionCreateStarted, .retrying: return nil
         }
     }

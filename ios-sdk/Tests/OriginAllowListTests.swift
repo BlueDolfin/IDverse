@@ -1,8 +1,8 @@
 import XCTest
 @testable import IDVerseSDK
 
-final class MediaOriginAllowListTests: XCTestCase {
-    private let list = MediaOriginAllowList(
+final class OriginAllowListTests: XCTestCase {
+    private let list = OriginAllowList(
         transactionURL: URL(string: "https://verify.idkit.co/t/abc")!)
 
     func test_allows_transactionHost() {

@@ -20,4 +20,9 @@ final class IDVerseEventTests: XCTestCase {
     func test_failureCategory_unknownDefault() {
         XCTAssertEqual(IDVerseFailureCategory(URLError(.badURL)), .unknown)
     }
+    func test_navigationBlocked_nameAndId() {
+        let event = IDVerseEvent.navigationBlocked(transactionId: "t1")
+        XCTAssertEqual(event.name, "navigationBlocked")
+        XCTAssertEqual(event.transactionId, "t1")
+    }
 }

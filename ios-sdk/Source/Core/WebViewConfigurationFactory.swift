@@ -11,13 +11,15 @@ enum WebViewConfigurationFactory {
         return "Mozilla/5.0 (iPhone; CPU iPhone OS \(osVersion) like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/126.0.6478.153 Mobile/15E148 Safari/604.1"
     }()
 
-    static func make() -> WKWebViewConfiguration {
+    static func make(limitsNavigationsToAppBoundDomains: Bool = false) -> WKWebViewConfiguration {
         let config = WKWebViewConfiguration()
         config.allowsInlineMediaPlayback = true
         config.mediaTypesRequiringUserActionForPlayback = []
         config.defaultWebpagePreferences.allowsContentJavaScript = true
         // Identity verification: keep no on-disk cookie/cache residue.
         config.websiteDataStore = .nonPersistent()
+        // Opt-in engine-enforced backstop to the delegate-level NavigationPolicy gate.
+        config.limitsNavigationsToAppBoundDomains = limitsNavigationsToAppBoundDomains
         return config
     }
 }

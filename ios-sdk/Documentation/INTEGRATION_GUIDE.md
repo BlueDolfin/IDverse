@@ -39,7 +39,7 @@ weeks or ship fragile flows.
 | **Cancellation** (Task cancel + SwiftUI teardown) | Orphaned webviews, leaked continuations | `withTaskCancellationHandler`, `dismantleUIViewController`, `cancelFromOutside` |
 | **Backgrounding + load watchdog** | Watchdog fires while suspended, or a spinner-forever on a dead URL | Backgrounding-aware watchdog in `IDVerseWebViewController` |
 | **WebView content-process termination** | Blank screen with no recovery when WebKit's renderer is jettisoned | Reload-once recovery in `webViewWebContentProcessDidTerminate` |
-| **Security defaults** (no secrets in-app, fail-closed origin allow-list, non-persistent web storage, PII-safe telemetry) | Secrets leak into the binary; the webview gets camera access for arbitrary origins; cookie/cache residue; document data in logs | The service seam, `MediaOriginAllowList`, non-persistent data store, `IDVerseEvent`/`IDVerseEventEmitter` |
+| **Security defaults** (no secrets in-app, fail-closed origin allow-list, non-persistent web storage, PII-safe telemetry) | Secrets leak into the binary; the webview gets camera access for arbitrary origins; cookie/cache residue; document data in logs | The service seam, `OriginAllowList`, non-persistent data store, `IDVerseEvent`/`IDVerseEventEmitter` |
 | **Result semantics** (redirect is a completion *signal*, not the result; polling can return `.pending`; webhook is authoritative) | Teams treat the in-app result as final and make irreversible decisions on `.pending` | Orchestrator polling + the `.pending`/webhook contract |
 | **Operational visibility** (events for start/load/retry/pending/complete/cancel/fail, without leaking document data) | Field issues are unsupportable guesswork | The observability layer (`IDVerseEvent`, `IDVerseObservability`, `IDVerseEventEmitter`) |
 | **One stable API across SwiftUI + UIKit** | N divergent in-house implementations across an app fleet | The facade + SwiftUI wrappers |
@@ -400,7 +400,7 @@ wiring.
 | Phase | Events |
 |---|---|
 | Start | `started`, `transactionCreateStarted`, `transactionCreateSucceeded` |
-| WebView | `presented`, `webViewLoaded`, `webContentProcessTerminated`, `redirectMatched` |
+| WebView | `presented`, `webViewLoaded`, `webContentProcessTerminated`, `redirectMatched`, `navigationBlocked` |
 | Result | `resultFetchStarted`, `retrying`, `resultPending`, `resultPollingTimedOut` |
 | Terminal | `completed`, `cancelled`, `failed` |
 
@@ -500,6 +500,10 @@ struct IDVerseConfiguration {
     var webViewLoadTimeout: TimeInterval      // default 30 s
     var resultPollingTimeout: TimeInterval    // default 60 s
     var retryPolicy: IDVerseRetryPolicy       // default .default
+    var limitsNavigationsToAppBoundDomains: Bool // default false; opt-in WebKit-enforced
+                                                  // navigation lock — requires WKAppBoundDomains
+                                                  // in the host app's Info.plist (see App-Bound
+                                                  // Domains section)
     static let default: IDVerseConfiguration
 }
 
@@ -516,6 +520,8 @@ struct IDVerseVerificationRequest {
     let transactionURL: URL
     let redirectURL: URL
     var showsCloseButton: Bool   // default true
+    var showsOriginHeader: Bool  // default true; native trust bar above the webview showing
+                                 // the live origin
     var transactionId: String?   // default nil; populated by the orchestrator on full-lifecycle runs
 }
 
@@ -595,6 +601,48 @@ struct IDVerseRetryPolicy {
 
 ---
 
+## App-Bound Domains (optional hardening)
+
+`IDVerseConfiguration.limitsNavigationsToAppBoundDomains` (default **off**) makes
+WebKit itself — not just the SDK's delegate code — refuse to navigate the
+verification webview anywhere outside the domains you declare. An open redirect,
+an injected link, or a compromised sub-resource cannot steer the capture screen
+to an attacker origin.
+
+To enable it you must do BOTH of the following; the flag without the plist key
+blocks **all** navigation and the flow will fail at the load timeout:
+
+1. Declare the domains in **your app's** `Info.plist` (an SDK cannot do this
+   for you — the key is app-wide, max 10 entries, registrable domains only;
+   subdomains are covered automatically):
+
+   ```xml
+   <key>WKAppBoundDomains</key>
+   <array>
+       <string>idkit.co</string>
+       <string>idverse.com</string>
+       <!-- plus your own transaction/staging host, if different -->
+   </array>
+   ```
+
+2. Pass `IDVerseConfiguration(limitsNavigationsToAppBoundDomains: true)` when
+   presenting the flow.
+
+**Know the tradeoffs before enabling:**
+
+- The `WKAppBoundDomains` key affects **every WKWebView in your app**: webviews
+  showing non-listed domains lose privileged WebKit APIs (script injection,
+  cookie access, message handlers). If your app has a help-center webview or
+  in-app browser, verify it still behaves.
+- **Local development:** if your mock/staging transaction URL is not on a listed
+  domain, either add that host to the array in Debug builds or leave the flag
+  off in Debug.
+- **Smoke-test the full journey** (consent → capture → liveness → complete) with
+  the flag on before shipping — an IDVerse-side navigation to a host you did not
+  list will be refused by WebKit.
+
+---
+
 ## Security checklist
 
 - [ ] No IDVerse API key or client secret anywhere in the app binary or its
@@ -607,6 +655,12 @@ struct IDVerseRetryPolicy {
 - [ ] Telemetry is PII-safe by design — events and logs carry no document data,
       names, dates of birth, or raw error messages; a compliance reviewer can
       assert this from the event type's shape alone.
+- [ ] Origin header left enabled (`showsOriginHeader`, default on) — the user can
+      see the live IDVerse origin above the capture screen; disable it only if you
+      render an equivalent trusted chrome yourself.
+- [ ] App-Bound Domains enabled (`limitsNavigationsToAppBoundDomains` +
+      `WKAppBoundDomains` in Info.plist) once the full journey is smoke-tested
+      with it on.
 
 ---
 
@@ -630,5 +684,6 @@ struct IDVerseRetryPolicy {
 The transaction API is **stubbed** pending a live IDVerse contract:
 `RemoteTransactionService.createTransaction` and `fetchResult` throw
 `notImplemented` until wired to a real backend. The SDK presentation layer,
-completion detection, observability, resilience, and result handling are complete
-and tested — wire your backend (Step 3) to go live.
+completion detection, security hardening (navigation gate + origin header),
+observability, resilience, and result handling are complete and tested — wire
+your backend (Step 3) to go live.

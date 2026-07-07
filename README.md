@@ -98,12 +98,21 @@ API and backend wiring.
 
 **Security & privacy**
 - **No IDVerse secrets in the app** — transactions come from your backend
+- **Fail-closed navigation gate** — main-frame navigation is restricted to the
+  transaction's own host and known IDVerse domains; anything else is cancelled
+  (and reported via a `navigationBlocked` event) without ending the flow
+- **Live origin header** — a native trust bar above the webview shows the lock
+  and host derived from the webview's *actual* URL (never a hardcoded label), so
+  users can see they are on IDVerse before photographing a document
+- **Opt-in App-Bound Domains** — WebKit itself refuses navigation outside your
+  declared domains (`limitsNavigationsToAppBoundDomains`), an engine-enforced
+  backstop to the delegate-level gate
 - **Fail-closed** camera/mic origin allow-list; **non-persistent** web storage
 - **PII-safe observability** — events/logs carry only ids/outcomes/categories/counters, by construction
 
 **Developer experience**
 - `MockTransactionService` + an example app to validate before production credentials
-- Foundation logic fully unit-tested (`swift test`, 43 tests); iOS UI build-verified
+- Foundation logic fully unit-tested (`swift test`, 59 tests); iOS UI build-verified
 
 ## Documentation
 

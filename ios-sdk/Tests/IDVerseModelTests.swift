@@ -26,4 +26,11 @@ final class IDVerseModelTests: XCTestCase {
         let cfg = TransactionConfig(redirectURL: URL(string: "idverse-sdk://complete")!)
         XCTAssertEqual(cfg.flowType, "single_doc")
     }
+
+    func test_request_defaultsShowsOriginHeaderTrue() {
+        let req = IDVerseVerificationRequest(
+            transactionURL: URL(string: "https://idkit.co/t")!,
+            redirectURL: URL(string: "idverse-sdk://complete")!)
+        XCTAssertTrue(req.showsOriginHeader)
+    }
 }
