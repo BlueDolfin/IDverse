@@ -140,7 +140,7 @@ API and backend wiring.
 |----------|----------|
 | **iOS** — [Integration Guide](ios-sdk/Documentation/INTEGRATION_GUIDE.md) | App developers: get the iOS SDK into your app, why use it (vs DIY), full API reference, backend wiring, security |
 | **iOS** — [Developer Guide](ios-sdk/Documentation/DEVELOPER_GUIDE.md) | SDK maintainers: architecture, file-by-file code walkthrough, conventions, testing, roadmap |
-| **iOS** — [Example app](ios-sdk/Examples/IDVerseApp/README.md) | Running the iOS example app |
+| **iOS** — [Example app](ios-sdk/Examples/IDVerseApp/README.md) | Using and testing the example app: the verification flow, mock preview, bridge demo checklists, troubleshooting |
 
 ## Requirements
 
