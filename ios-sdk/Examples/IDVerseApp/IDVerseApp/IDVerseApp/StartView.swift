@@ -59,6 +59,12 @@ struct StartView: View {
                 Text("Shows the result UI with canned data — no webview, no network.")
                     .font(.caption).foregroundStyle(.secondary)
 
+                Divider()
+
+                NavigationLink("Bridge demo") { BridgeDemoView() }
+                Text("LiteWebView core loading a bundled page that calls a native flow via the JS bridge.")
+                    .font(.caption).foregroundStyle(.secondary)
+
                 if let result {
                     ResultDisplayView(result: result)
                 }

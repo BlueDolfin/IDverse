@@ -8,28 +8,31 @@ let package = Package(
         .macOS(.v11)
     ],
     products: [
-        .library(
-            name: "IDVerseSDK",
-            targets: ["IDVerseSDK"]
-        )
-    ],
-    dependencies: [
-        // Add dependencies here if needed
-        // .package(url: "https://github.com/Alamofire/Alamofire.git", from: "5.8.0")
+        .library(name: "LiteWebView", targets: ["LiteWebView"]),
+        .library(name: "IDVerseSDK", targets: ["IDVerseSDK"])
     ],
     targets: [
         .target(
-            name: "IDVerseSDK",
+            name: "LiteWebView",
             dependencies: [],
-            path: "Source",
-            resources: [
-                .copy("PrivacyInfo.xcprivacy")
-            ]
+            path: "Source/LiteWebView",
+            resources: [.copy("PrivacyInfo.xcprivacy")]
+        ),
+        .target(
+            name: "IDVerseSDK",
+            dependencies: ["LiteWebView"],
+            path: "Source/IDVerseSDK",
+            resources: [.copy("PrivacyInfo.xcprivacy")]
+        ),
+        .testTarget(
+            name: "LiteWebViewTests",
+            dependencies: ["LiteWebView"],
+            path: "Tests/LiteWebViewTests"
         ),
         .testTarget(
             name: "IDVerseSDKTests",
             dependencies: ["IDVerseSDK"],
-            path: "Tests"
+            path: "Tests/IDVerseSDKTests"
         )
     ]
 )

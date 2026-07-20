@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LiteWebView bridge demo</title>
+  <style>
+    body { font-family: -apple-system, sans-serif; margin: 24px; }
+    button { font-size: 17px; padding: 12px 20px; }
+    pre { background: #f2f2f7; padding: 12px; border-radius: 8px; white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+  <h1>Native flow bridge</h1>
+  <p>This page is the container's configured <code>bundledBridgePage</code>. It calls
+     <code>window.LiteWebView.executeNativeFlow(flowId, args)</code> and awaits the result.</p>
+  <button id="run">Run native "greet" flow</button>
+  <pre id="out">–</pre>
+  <script>
+    document.getElementById("run").onclick = async () => {
+      const out = document.getElementById("out");
+      try {
+        const result = await window.LiteWebView.executeNativeFlow("greet", { name: "web page" });
+        out.textContent = "resolved: " + JSON.stringify(result);
+      } catch (e) {
+        out.textContent = "rejected: code=" + e.code + " message=" + e.message;
+      }
+    };
+  </script>
+</body>
+</html>

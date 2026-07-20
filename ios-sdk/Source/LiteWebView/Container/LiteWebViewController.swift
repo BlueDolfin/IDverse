@@ -3,18 +3,24 @@ import UIKit
 import WebKit
 import AVFoundation
 
-public final class IDVerseWebViewController: UIViewController {
-    private let request: IDVerseVerificationRequest
-    private var onFinish: @MainActor (Result<WebFlowOutcome, IDVerseError>) -> Void
-    private lazy var allowList = OriginAllowList(transactionURL: request.transactionURL)
-    private let matcher: IDVerseRedirectMatcher
-    private lazy var navigationPolicy = NavigationPolicy(matcher: matcher, allowList: allowList)
+@MainActor
+public final class LiteWebViewController: UIViewController {
+    private let request: LiteWebViewRequest
+    private let nativeFlows: NativeFlowRegistry
+    private let events: LiteWebViewEvents
+    private var onFinish: @MainActor (Result<LiteWebViewOutcome, LiteWebViewError>) -> Void
+    /// Spec §5a: only a page that provably lives inside the app bundle gets the exception.
+    /// A configured page outside the bundle is treated as not configured at all.
+    private lazy var bundledPage: URL? = BundledPageValidator.validate(
+        request.bundledBridgePage, bundleURL: Bundle.main.bundleURL)
+    private lazy var navigationPolicy = NavigationPolicy(completionRule: request.completionRule,
+                                                         allowList: request.allowList,
+                                                         bundledPage: bundledPage)
     private var didBlockNavigation = false
 
     private var webView: WKWebView!
+    private var bridge: NativeFlowBridge?
     private let spinner = UIActivityIndicatorView(style: .large)
-    private let configuration: IDVerseConfiguration
-    private let emitter: IDVerseEventEmitter
     private var reloadedAfterTermination = false
     private var firstLoadDone = false
     private var awaitingLoad = false
@@ -26,19 +32,33 @@ public final class IDVerseWebViewController: UIViewController {
     private let originLabel = UILabel()
     private var urlObservation: NSKeyValueObservation?
 
-    init(request: IDVerseVerificationRequest,
-         configuration: IDVerseConfiguration = .default,
-         emitter: IDVerseEventEmitter = IDVerseEventEmitter(.disabled, category: "flow"),
-         onFinish: @escaping @MainActor (Result<WebFlowOutcome, IDVerseError>) -> Void) {
+    public init(request: LiteWebViewRequest,
+                nativeFlows: NativeFlowRegistry? = nil,
+                events: LiteWebViewEvents = LiteWebViewEvents(),
+                onFinish: @escaping @MainActor (Result<LiteWebViewOutcome, LiteWebViewError>) -> Void) {
         self.request = request
-        self.configuration = configuration
-        self.emitter = emitter
+        // `NativeFlowRegistry()` is @MainActor-isolated, so it cannot appear as a
+        // literal default-argument value on a `public` init (default-argument
+        // generators for public API are compiled as nonisolated symbols for ABI
+        // reasons, regardless of the enclosing type's own isolation). Constructing
+        // the empty-registry default here, inside the (MainActor-isolated) body,
+        // preserves the stated "defaults to no registered flows" behavior.
+        self.nativeFlows = nativeFlows ?? NativeFlowRegistry()
+        self.events = events
         self.onFinish = onFinish
-        self.matcher = IDVerseRedirectMatcher(redirectURL: request.redirectURL)
         super.init(nibName: nil, bundle: nil)
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    public override func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated)
+        // Host dismissed/popped us directly: cancel any in-flight native flow so the
+        // page's promise rejects and the lock releases (spec §8 teardown guarantee).
+        if isBeingDismissed || isMovingFromParent {
+            bridge?.cancelActiveFlow()
+        }
+    }
 
     public override func viewDidLoad() {
         super.viewDidLoad()
@@ -52,10 +72,11 @@ public final class IDVerseWebViewController: UIViewController {
 
     private func setupWebView() {
         let config = WebViewConfigurationFactory.make(
-            limitsNavigationsToAppBoundDomains: configuration.limitsNavigationsToAppBoundDomains)
+            limitsNavigationsToAppBoundDomains: request.limitsNavigationsToAppBoundDomains)
+        attachBridgeIfNeeded(to: config)
         webView = WKWebView(frame: .zero, configuration: config)
         webView.translatesAutoresizingMaskIntoConstraints = false
-        webView.customUserAgent = WebViewConfigurationFactory.chromeUserAgent
+        if let userAgent = request.customUserAgent { webView.customUserAgent = userAgent }
         webView.navigationDelegate = self
         webView.uiDelegate = self
         view.addSubview(webView)
@@ -77,8 +98,22 @@ public final class IDVerseWebViewController: UIViewController {
         }
     }
 
+    /// Opt-in (spec §6): zero registered flows → no script injected, no handler attached.
+    private func attachBridgeIfNeeded(to config: WKWebViewConfiguration) {
+        guard !nativeFlows.isEmpty else { return }
+        let gate = BridgeGate(allowList: request.allowList,
+                              bundledBridgePage: bundledPage)
+        let bridge = NativeFlowBridge(registry: nativeFlows, gate: gate, lock: NativeFlowLock(),
+                                      presenter: { [weak self] in self })
+        self.bridge = bridge
+        config.userContentController.addScriptMessageHandler(bridge, contentWorld: .page,
+                                                             name: BridgeScript.handlerName)
+        config.userContentController.addUserScript(WKUserScript(source: BridgeScript.source,
+                                                                injectionTime: .atDocumentStart,
+                                                                forMainFrameOnly: true))
+    }
+
     /// Native trust bar OUTSIDE the webview — web content cannot draw over it.
-    /// State is derived live from webView.url; never a hardcoded label.
     private func setupOriginHeader() {
         originHeader.translatesAutoresizingMaskIntoConstraints = false
         originHeader.backgroundColor = .secondarySystemBackground
@@ -110,7 +145,7 @@ public final class IDVerseWebViewController: UIViewController {
     }
 
     private func updateOriginHeader(for url: URL?) {
-        switch OriginHeaderState.derive(url: url, allowList: allowList) {
+        switch OriginHeaderState.derive(url: url, allowList: request.allowList) {
         case .loading:
             originLock.image = UIImage(systemName: "lock")
             originLock.tintColor = .secondaryLabel
@@ -149,51 +184,64 @@ public final class IDVerseWebViewController: UIViewController {
         }
     }
 
-    /// The web flow needs the camera (document + selfie) AND the microphone (liveness video).
-    /// Both are pre-flighted before loading so a denial is a typed failure up front instead of
-    /// a getUserMedia call silently dying mid-journey.
+    /// Required media access is pre-flighted so a denial is a typed failure up front
+    /// instead of a getUserMedia call silently dying mid-journey.
     private func loadAfterMediaPermissions() {
-        AVCaptureDevice.requestAccess(for: .video) { [weak self] videoGranted in
+        requestIfNeeded(.video, required: request.requiresCamera,
+                        failure: .cameraPermissionDenied) { [weak self] in
+            guard let self else { return }
+            self.requestIfNeeded(.audio, required: self.request.requiresMicrophone,
+                                 failure: .microphonePermissionDenied) { [weak self] in
+                self?.startFlow()
+            }
+        }
+    }
+
+    private func requestIfNeeded(_ mediaType: AVMediaType, required: Bool,
+                                 failure: LiteWebViewError, then proceed: @escaping () -> Void) {
+        guard required else { proceed(); return }
+        AVCaptureDevice.requestAccess(for: mediaType) { [weak self] granted in
             DispatchQueue.main.async {
                 guard let self else { return }
-                guard videoGranted else {
-                    self.finish(.failure(.cameraPermissionDenied))
+                guard granted else {
+                    self.finish(.failure(failure))
                     return
                 }
-                AVCaptureDevice.requestAccess(for: .audio) { [weak self] audioGranted in
-                    DispatchQueue.main.async {
-                        guard let self else { return }
-                        guard audioGranted else {
-                            self.finish(.failure(.microphonePermissionDenied))
-                            return
-                        }
-                        self.startFlow()
-                    }
-                }
+                proceed()
             }
         }
     }
 
     private func startFlow() {
         didBlockNavigation = false
-        emitter.emit(.presented(transactionId: request.transactionId))
+        events.onFlowStarted()
         observeAppLifecycle()
         startLoadWatchdog()
         awaitingLoad = true
-        webView.load(URLRequest(url: request.transactionURL,
-                                timeoutInterval: max(0, configuration.webViewLoadTimeout)))
+        loadInitialPage()
     }
 
-    /// iOS cannot prevent screen recording/mirroring, only detect it. While the screen is
-    /// captured, cover the webview (ID document + face are on screen) with an opaque shield.
-    /// The Close button stays on top so the user is never trapped.
+    /// Single load path — the crash-recovery reload (below) must go through the same
+    /// branch, or a bundled file: page would be reloaded with a plain URLRequest and fail.
+    private func loadInitialPage() {
+        if request.url.isFileURL {
+            webView.loadFileURL(request.url,
+                                allowingReadAccessTo: request.url.deletingLastPathComponent())
+        } else {
+            webView.load(URLRequest(url: request.url,
+                                    timeoutInterval: max(0, request.loadTimeout)))
+        }
+    }
+
+    /// iOS cannot prevent screen recording/mirroring, only detect it. While captured,
+    /// cover the webview with an opaque shield. The Close button stays on top.
     private func setupCaptureShield() {
         captureShield.backgroundColor = .systemBackground
         captureShield.frame = view.bounds
         captureShield.autoresizingMask = [.flexibleWidth, .flexibleHeight]
 
         let label = UILabel()
-        label.text = "Verification is hidden while the screen is being recorded or mirrored."
+        label.text = "Content is hidden while the screen is being recorded or mirrored."
         label.font = .preferredFont(forTextStyle: .body)
         label.textAlignment = .center
         label.numberOfLines = 0
@@ -205,7 +253,6 @@ public final class IDVerseWebViewController: UIViewController {
             label.trailingAnchor.constraint(equalTo: captureShield.trailingAnchor, constant: -32)
         ])
 
-        // Above the webview, below the spinner and Close button added in setupChrome().
         view.insertSubview(captureShield, aboveSubview: webView)
         NotificationCenter.default.addObserver(self, selector: #selector(capturedDidChange),
             name: UIScreen.capturedDidChangeNotification, object: nil)
@@ -216,21 +263,19 @@ public final class IDVerseWebViewController: UIViewController {
         captureShield.isHidden = !UIScreen.main.isCaptured
     }
 
-    /// Fails the flow if the FIRST page never loads within `configuration.webViewLoadTimeout`.
-    /// Cancelled on the first `didFinish`, so a legitimately long in-progress
-    /// journey (capture/liveness can take minutes) is never interrupted.
+    /// Fails the flow if the FIRST page never loads within `request.loadTimeout`.
     private func startLoadWatchdog() {
         loadWatchdog?.cancel()
         let item = DispatchWorkItem { [weak self] in
             guard let self, !self.didFinish else { return }
             self.spinner.stopAnimating()
-            self.finish(.failure(.webContentLoadFailed(
-                NSError(domain: "IDVerseSDK", code: NSURLErrorTimedOut,
+            self.finish(.failure(.contentLoadFailed(
+                NSError(domain: "LiteWebView", code: NSURLErrorTimedOut,
                         userInfo: [NSLocalizedDescriptionKey:
-                            "The verification page did not load. Check the transaction URL and your connection."]))))
+                            "The page did not load. Check the URL and your connection."]))))
         }
         loadWatchdog = item
-        DispatchQueue.main.asyncAfter(deadline: .now() + max(0, configuration.webViewLoadTimeout), execute: item)
+        DispatchQueue.main.asyncAfter(deadline: .now() + max(0, request.loadTimeout), execute: item)
     }
 
     private func observeAppLifecycle() {
@@ -244,42 +289,42 @@ public final class IDVerseWebViewController: UIViewController {
     deinit { NotificationCenter.default.removeObserver(self) }
 
     @objc private func closeTapped() {
-        finish(.success(WebFlowOutcome(status: .cancelled, transactionId: request.transactionId)))
+        finish(.success(.cancelled))
     }
 
-    func setOnFinish(_ handler: @escaping @MainActor (Result<WebFlowOutcome, IDVerseError>) -> Void) {
+    func setOnFinish(_ handler: @escaping @MainActor (Result<LiteWebViewOutcome, LiteWebViewError>) -> Void) {
         self.onFinish = handler
     }
 
-    func cancelFromOutside() {
-        finish(.success(WebFlowOutcome(status: .cancelled, transactionId: request.transactionId)))
+    public func cancelFromOutside() {
+        finish(.success(.cancelled))
     }
 
-    private func finish(_ outcome: Result<WebFlowOutcome, IDVerseError>) {
+    private func finish(_ outcome: Result<LiteWebViewOutcome, LiteWebViewError>) {
         guard !didFinish else { return }
         didFinish = true
-        loadWatchdog?.cancel()   // release the controller promptly; don't linger until the deadline
+        loadWatchdog?.cancel()
+        bridge?.cancelActiveFlow()   // teardown cancels any in-flight native flow (spec §8)
         onFinish(outcome)
     }
 }
 
-extension IDVerseWebViewController: WKNavigationDelegate {
+extension LiteWebViewController: WKNavigationDelegate {
     public func webView(_ webView: WKWebView,
                         decidePolicyFor navigationAction: WKNavigationAction,
                         decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
         let isMainFrame = navigationAction.targetFrame?.isMainFrame == true
         switch navigationPolicy.decide(url: navigationAction.request.url, isMainFrame: isMainFrame) {
-        case .finishFlow(let match):
+        case .finishFlow(let matchedURL):
             decisionHandler(.cancel)
-            emitter.emit(.redirectMatched(transactionId: match.transactionId ?? request.transactionId))
-            finish(.success(WebFlowOutcome(status: .completed,
-                                           transactionId: match.transactionId ?? request.transactionId)))
+            events.onCompletionMatched(matchedURL)
+            finish(.success(.completed(matchedURL)))
         case .allow:
             decisionHandler(.allow)
         case .block:
             didBlockNavigation = true
             decisionHandler(.cancel)
-            emitter.emit(.navigationBlocked(transactionId: request.transactionId))
+            events.onNavigationBlocked()
         }
     }
 
@@ -287,19 +332,18 @@ extension IDVerseWebViewController: WKNavigationDelegate {
         loadWatchdog?.cancel()
         awaitingLoad = false
         spinner.stopAnimating()
-        if !firstLoadDone { firstLoadDone = true; emitter.emit(.webViewLoaded(transactionId: request.transactionId)) }
+        if !firstLoadDone { firstLoadDone = true; events.onLoaded() }
     }
 
     public func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
         loadWatchdog?.cancel()
         spinner.stopAnimating()
-        finish(.failure(.webContentLoadFailed(error)))
+        finish(.failure(.contentLoadFailed(error)))
     }
 
     public func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
         // A navigation we deliberately cancelled surfaces here as "cancelled" /
-        // "frame load interrupted" (102) — not a real load failure. If the blocked
-        // navigation was the initial load, the watchdog still fails the flow.
+        // "frame load interrupted" (102) — not a real load failure.
         let nsError = error as NSError
         let deliberateCancel =
             (nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled) ||
@@ -310,32 +354,34 @@ extension IDVerseWebViewController: WKNavigationDelegate {
         }
         loadWatchdog?.cancel()
         spinner.stopAnimating()
-        finish(.failure(.webContentLoadFailed(error)))
+        finish(.failure(.contentLoadFailed(error)))
     }
 
     public func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
-        emitter.emit(.webContentProcessTerminated(transactionId: request.transactionId))
+        events.onContentProcessTerminated()
         if reloadedAfterTermination {
-            finish(.failure(.webContentLoadFailed(
-                NSError(domain: "IDVerseSDK", code: NSURLErrorCannotConnectToHost,
-                        userInfo: [NSLocalizedDescriptionKey: "The verification view crashed and could not be recovered."]))))
+            finish(.failure(.contentLoadFailed(
+                NSError(domain: "LiteWebView", code: NSURLErrorCannotConnectToHost,
+                        userInfo: [NSLocalizedDescriptionKey: "The web view crashed and could not be recovered."]))))
             return
         }
         reloadedAfterTermination = true
         didBlockNavigation = false
         startLoadWatchdog()
         awaitingLoad = true
-        webView.load(URLRequest(url: request.transactionURL, timeoutInterval: max(0, configuration.webViewLoadTimeout)))
+        loadInitialPage()
     }
 }
 
-extension IDVerseWebViewController: WKUIDelegate {
+extension LiteWebViewController: WKUIDelegate {
     public func webView(_ webView: WKWebView,
                         requestMediaCapturePermissionFor origin: WKSecurityOrigin,
                         initiatedByFrame frame: WKFrameInfo,
                         type: WKMediaCaptureType,
                         decisionHandler: @escaping (WKPermissionDecision) -> Void) {
-        decisionHandler(allowList.allows(host: origin.host) ? .grant : .deny)
+        let webOrigin = WebOrigin(scheme: origin.protocol, host: origin.host,
+                                  port: origin.port == 0 ? nil : origin.port)
+        decisionHandler(request.allowList.allows(webOrigin) ? .grant : .deny)
     }
 }
 #endif

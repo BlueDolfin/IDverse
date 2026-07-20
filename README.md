@@ -46,11 +46,30 @@ in-app `.pending` result is valid and means "reconcile via the webhook").
 ## Repository structure
 
 ```
-ios-sdk/        Swift Package (IDVerseSDK, iOS 15+, no deps) + Documentation/ + Examples/IDVerseApp
+ios-sdk/        Swift Package (LiteWebView core + IDVerseSDK adapter, iOS 15+, no deps) + Documentation/ + Examples/IDVerseApp
 ```
 
 The SDK is self-contained: its code, its `Documentation/` (Integration +
 Developer guides), and its example app all live under `ios-sdk/`.
+
+## Two library products
+
+The Swift package ships two library products:
+
+- **`LiteWebView`** — a reusable, vendor-neutral controlled-webview container:
+  https-only origin allow-list (zero built-in trust — every entry is supplied
+  by the consumer), fail-closed navigation policy, live trust bar, App-Bound
+  Domains passthrough. It also ships an opt-in **web→native flow bridge**: a
+  page calls `window.LiteWebView.executeNativeFlow(flowId, args)` and awaits a
+  result from a native flow the host registered.
+- **`IDVerseSDK`** — the SDK described in this README, now a thin adapter over
+  `LiteWebView` (IDVerse's trust domains, redirect parsing, Chrome UA). **Its
+  public API is unchanged.**
+
+See the [iOS Developer Guide](ios-sdk/Documentation/DEVELOPER_GUIDE.md) for the
+architecture and the example app's "Bridge demo" for the bridge in action. One
+navigation behavior tightened in this split — see
+[CHANGELOG.md](CHANGELOG.md).
 
 ## Quick start (iOS)
 
@@ -112,7 +131,8 @@ API and backend wiring.
 
 **Developer experience**
 - `MockTransactionService` + an example app to validate before production credentials
-- Foundation logic fully unit-tested (`swift test`, 59 tests); iOS UI build-verified
+- Foundation logic fully unit-tested (`swift test`, 109 tests across the
+  `LiteWebView` and `IDVerseSDK` targets); iOS UI build-verified
 
 ## Documentation
 

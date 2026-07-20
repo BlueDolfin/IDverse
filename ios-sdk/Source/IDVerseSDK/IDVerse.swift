@@ -1,5 +1,6 @@
 #if canImport(UIKit)
 import UIKit
+import LiteWebView
 
 @MainActor
 public enum IDVerse {
@@ -51,7 +52,7 @@ public enum IDVerse {
         let controller = IDVerseWebViewController(request: request, configuration: configuration, emitter: emitter) { _ in }
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (cont: CheckedContinuation<WebFlowOutcome, Error>) in
-                let box = OneShotCompletion<WebFlowOutcome> { result in
+                let box = OneShotCompletion<WebFlowOutcome, IDVerseError> { result in
                     presenter.dismiss(animated: true) {
                         switch result {
                         case .success(let o): cont.resume(returning: o)

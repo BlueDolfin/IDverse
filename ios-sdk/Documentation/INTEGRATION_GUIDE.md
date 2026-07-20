@@ -32,14 +32,14 @@ weeks or ship fragile flows.
 
 | Sharp edge | What goes wrong if you DIY | Where the SDK handles it |
 |---|---|---|
-| **WKWebView setup for IDVerse** (inline media, JS, Chrome-iOS UA, getUserMedia) | Wrong config → camera silently never works | `WebViewConfigurationFactory`, `IDVerseWebViewController` |
-| **Camera/mic permission bridge** (native `AVCaptureDevice` + `WKUIDelegate requestMediaCapturePermissionFor`) | Miss the bridge → in-webview camera is dead with no error | `IDVerseWebViewController` |
-| **Main-frame-only redirect detection** | A sub-frame URL spoofs "done", or you miss real completion | `IDVerseRedirectMatcher` + `decidePolicyFor` |
+| **WKWebView setup for IDVerse** (inline media, JS, Chrome-iOS UA, getUserMedia) | Wrong config → camera silently never works | `WebViewConfigurationFactory` (LiteWebView core), `IDVerseWebViewController` |
+| **Camera/mic permission bridge** (native `AVCaptureDevice` + `WKUIDelegate requestMediaCapturePermissionFor`) | Miss the bridge → in-webview camera is dead with no error | `LiteWebViewController` (core), owned by `IDVerseWebViewController` |
+| **Main-frame-only redirect detection** | A sub-frame URL spoofs "done", or you miss real completion | `RedirectCompletionRule` (core) + `IDVerseRedirectParser` (adapter) + `decidePolicyFor` |
 | **Resume-exactly-once / double-completion guards** | Double-resume crashes the continuation; lost callbacks hang the flow | `OneShotCompletion` + controller `didFinish` |
 | **Cancellation** (Task cancel + SwiftUI teardown) | Orphaned webviews, leaked continuations | `withTaskCancellationHandler`, `dismantleUIViewController`, `cancelFromOutside` |
-| **Backgrounding + load watchdog** | Watchdog fires while suspended, or a spinner-forever on a dead URL | Backgrounding-aware watchdog in `IDVerseWebViewController` |
+| **Backgrounding + load watchdog** | Watchdog fires while suspended, or a spinner-forever on a dead URL | Backgrounding-aware watchdog in `LiteWebViewController` (core) |
 | **WebView content-process termination** | Blank screen with no recovery when WebKit's renderer is jettisoned | Reload-once recovery in `webViewWebContentProcessDidTerminate` |
-| **Security defaults** (no secrets in-app, fail-closed origin allow-list, non-persistent web storage, PII-safe telemetry) | Secrets leak into the binary; the webview gets camera access for arbitrary origins; cookie/cache residue; document data in logs | The service seam, `OriginAllowList`, non-persistent data store, `IDVerseEvent`/`IDVerseEventEmitter` |
+| **Security defaults** (no secrets in-app, fail-closed **https-only** origin allow-list, non-persistent web storage, PII-safe telemetry) | Secrets leak into the binary; the webview gets camera access for arbitrary origins; cookie/cache residue; document data in logs | The service seam, core `OriginAllowList` (IDVerse's entries supplied by `IDVerseAllowList`), non-persistent data store, `IDVerseEvent`/`IDVerseEventEmitter` |
 | **Result semantics** (redirect is a completion *signal*, not the result; polling can return `.pending`; webhook is authoritative) | Teams treat the in-app result as final and make irreversible decisions on `.pending` | Orchestrator polling + the `.pending`/webhook contract |
 | **Operational visibility** (events for start/load/retry/pending/complete/cancel/fail, without leaking document data) | Field issues are unsupportable guesswork | The observability layer (`IDVerseEvent`, `IDVerseObservability`, `IDVerseEventEmitter`) |
 | **One stable API across SwiftUI + UIKit** | N divergent in-house implementations across an app fleet | The facade + SwiftUI wrappers |
@@ -66,6 +66,10 @@ Beyond the table:
 - **Time-to-integrate / risk.** The real cost saved isn't the few dozen lines of
   the happy path — it's the weeks _not_ spent discovering these edges in
   production, on real devices, with real users mid-verification.
+- **Https-only main-frame navigation.** Plain-HTTP main-frame navigation is
+  blocked even on allow-listed hosts (a tightening from an earlier version —
+  see `CHANGELOG.md`). IDVerse's journey is https end to end, so this has no
+  functional impact on a normal integration.
 
 IDVerse's hosted flow is web-based, but production mobile integration is not
 "just a WebView." The SDK's value is not that it makes IDVerse native — it makes
